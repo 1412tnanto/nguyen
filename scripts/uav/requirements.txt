@@ -1,0 +1,52 @@
+# Môi trường Python cho mô phỏng UAV (Python 3.12, venv tại /opt/uav-venv)
+# Cài bằng: scripts/uav/setup.sh   |   Nâng cấp: scripts/uav/setup.sh --upgrade
+
+# --- Khoa học cơ bản ---
+numpy
+scipy
+sympy
+pandas
+matplotlib
+numba
+h5py
+tqdm
+jupyterlab
+ipykernel
+pytest
+ruff
+
+# --- Khí động học (aerodynamics) ---
+aerosandbox[full]     # VLM, lifting line, AeroBuildup, tối ưu thiết kế máy bay
+neuralfoil            # profil cánh (airfoil) thay XFOIL, nhanh và ổn định
+ambiance              # khí quyển chuẩn ISA
+
+# --- Động lực học bay, điều khiển, tối ưu ---
+control               # python-control: PID, LQR, hàm truyền, Bode
+casadi                # tối ưu phi tuyến, MPC
+cvxpy
+openmdao              # tối ưu đa ngành (MDO)
+filterpy              # bộ lọc Kalman / EKF
+
+# --- Mô phỏng vật lý / robot ---
+mujoco
+pybullet
+gymnasium
+stable-baselines3     # học tăng cường (RL); torch CPU cài riêng trong setup.sh
+
+# --- Autopilot, MAVLink, log bay ---
+pymavlink
+MAVProxy
+mavsdk
+pyulog                # đọc log PX4 (.ulg)
+empy==3.3.4           # cần cho build ArduPilot
+pexpect
+future
+
+# --- Kết cấu / kiểm bền (FEM), lưới, hậu xử lý ---
+gmsh
+meshio
+scikit-fem            # FEM thuần Python
+PyNiteFEA             # khung/dầm 3D
+sectionproperties     # đặc trưng mặt cắt (I, J, tâm cắt...)
+pyvista
+vtk
