@@ -1,0 +1,34 @@
+{
+  "enabledPlugins": {
+    "claude-code-setup@claude-plugins-official": true,
+    "ponytail@ponytail": true,
+    "claude-mem@thedotmack": true,
+    "task-observer@petrovici-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    },
+    "thedotmack": {
+      "source": {
+        "source": "github",
+        "repo": "thedotmack/claude-mem"
+      }
+    },
+    "petrovici-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "petrovicistefan/claude-code-plugins"
+      }
+    }
+  }
+}
