@@ -216,9 +216,11 @@ def t_bin(name, args):
 def t_xfoil():
     exe = shutil.which("xfoil")
     assert exe
-    r = subprocess.run([exe], input="naca 2412\noper\nvisc 1e6\nalfa 4\n\nquit\n",
-                       capture_output=True, text=True, timeout=60,
-                       env={**os.environ, "DISPLAY": ""})
+    # XFOIL ghi file lớp biên (:00.bl) vào thư mục hiện tại -> chạy trong thư mục tạm
+    with tempfile.TemporaryDirectory() as d:
+        r = subprocess.run([exe], input="naca 2412\noper\nvisc 1e6\nalfa 4\n\nquit\n",
+                           capture_output=True, text=True, timeout=60, cwd=d,
+                           env={**os.environ, "DISPLAY": ""})
     cl = [ln for ln in r.stdout.splitlines() if "CL =" in ln]
     assert cl, r.stdout[-300:]
     return cl[-1].strip()[:80]
