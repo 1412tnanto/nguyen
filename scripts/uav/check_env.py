@@ -35,7 +35,7 @@ for mod in ["numpy", "scipy", "sympy", "pandas", "matplotlib", "numba", "control
             "cvxpy", "openmdao", "filterpy", "aerosandbox", "neuralfoil", "ambiance", "mujoco",
             "pybullet", "gymnasium", "stable_baselines3", "torch", "gym_pybullet_drones",
             "pymavlink", "mavsdk", "pyulog", "gmsh", "meshio", "skfem", "Pynite",
-            "sectionproperties", "pyvista"]:
+            "sectionproperties", "pyvista", "genesis"]:
     check(f"import {mod}", lambda mod=mod: ver(mod))
 
 
@@ -256,6 +256,47 @@ def t_ardupilot():
     return "arducopter SITL gửi heartbeat (quadrotor, ArduPilot)"
 
 
+def t_genesis():
+    # Rơi tự do 1 s từ 10 m, dt = 1 ms: z ≈ 10 - 4.905 (Euler bán ẩn lệch thêm ~g·dt·n/2 = 4.9 mm)
+    import genesis as gs
+    gs.init(backend=gs.cpu, logging_level="warning")
+    scene = gs.Scene(show_viewer=False, sim_options=gs.options.SimOptions(dt=0.001))
+    scene.add_entity(gs.morphs.Plane())
+    box = scene.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 10)))
+    scene.build()
+    for _ in range(1000):
+        scene.step()
+    z = float(box.get_pos()[2])
+    assert abs(z - 5.095) < 0.02, z
+    return f"z(1 s) = {z:.3f} m"
+
+
+def t_gazebo():
+    # Gazebo Harmonic headless: chạy 1000 bước world mẫu
+    exe = shutil.which("gz")
+    assert exe, "không có lệnh gz"
+    r = run([exe, "sim", "-s", "-r", "--iterations", "1000", "-v", "1", "empty.sdf"])
+    assert r.returncode == 0, (r.stdout + r.stderr)[-300:]
+    v = run([exe, "sim", "--versions"]).stdout.split()
+    return f"gz-sim {v[0] if v else '?'} chạy 1000 bước headless"
+
+
+def t_px4():
+    # PX4 SITL (SIH quad): arm + cất cánh tới MIS_TAKEOFF_ALT qua MAVLink
+    here = os.path.dirname(os.path.abspath(__file__))
+    p = subprocess.Popen([os.path.join(here, "px4_sitl.sh"), "sihsim_quadx"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        r = subprocess.run([sys.executable, os.path.join(here, "examples", "px4_takeoff.py")],
+                           capture_output=True, text=True, timeout=240)
+    finally:
+        p.terminate()
+        p.wait(timeout=20)
+    out = r.stdout.strip().splitlines()
+    assert r.returncode == 0, (r.stdout + r.stderr)[-300:]
+    return out[-1] if out else "ok"
+
+
 check("ISA (ambiance)", t_isa)
 check("NeuralFoil", t_neuralfoil)
 check("AeroSandbox VLM", t_vlm)
@@ -271,6 +312,9 @@ check("OpenFOAM", t_openfoam)
 check("SU2", t_bin("SU2_CFD", ["--help"]))
 check("ParaView (pvbatch)", t_bin("pvbatch", ["--version"]))
 check("ArduPilot SITL", t_ardupilot)
+check("Genesis rơi tự do", t_genesis)
+check("Gazebo Harmonic", t_gazebo)
+check("PX4 SITL cất cánh (SIH)", t_px4)
 
 w = max(len(n) for n, _, _ in results)
 for name, ok, info in results:

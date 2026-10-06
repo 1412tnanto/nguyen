@@ -2,9 +2,9 @@
 # Cài môi trường mô phỏng UAV (khí động, động lực học bay, kiểm bền, SITL).
 # Idempotent: chạy lại chỉ cài phần còn thiếu.
 #   scripts/uav/setup.sh              cài phần thiếu
-#   scripts/uav/setup.sh --upgrade    nâng cấp gói Python, SU2, ArduPilot
-#   scripts/uav/setup.sh --with-px4   cài thêm PX4 SITL (nặng, ~8 GB)
-#   scripts/uav/setup.sh --skip-sitl  bỏ qua ArduPilot (cài nhanh)
+#   scripts/uav/setup.sh --upgrade    nâng cấp gói Python, SU2, ArduPilot, Gazebo
+#   scripts/uav/setup.sh --skip-px4   bỏ qua PX4 + Gazebo
+#   scripts/uav/setup.sh --skip-sitl  bỏ qua ArduPilot, PX4, Gazebo (cài nhanh)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,11 +12,16 @@ VENV=/opt/uav-venv
 SU2_DIR=/opt/su2
 ARDUPILOT_DIR=/opt/ardupilot
 PX4_DIR=/opt/PX4-Autopilot
-UPGRADE=0; WITH_PX4=0; SKIP_SITL=0
+PX4_TAG=v1.16.2                 # bản ổn định; đổi tag ở đây để nâng cấp PX4
+GZ_ENV=/opt/gz                  # Gazebo Harmonic từ conda-forge (repo OSRF bị chặn)
+MAMBA=/opt/micromamba/bin/micromamba
+export MAMBA_ROOT_PREFIX=/opt/micromamba
+UPGRADE=0; SKIP_PX4=0; SKIP_SITL=0
 for a in "$@"; do
   case "$a" in
     --upgrade) UPGRADE=1 ;;
-    --with-px4) WITH_PX4=1 ;;
+    --skip-px4) SKIP_PX4=1 ;;
+    --with-px4) ;;  # giữ tương thích: PX4 nay cài mặc định
     --skip-sitl) SKIP_SITL=1 ;;
     *) echo "Tham số không hợp lệ: $a" >&2; exit 2 ;;
   esac
@@ -116,11 +121,52 @@ if [ $SKIP_SITL -eq 0 ]; then
   fi
 fi
 
-# ---------- 5. PX4 SITL (tùy chọn) ----------
-if [ $WITH_PX4 -eq 1 ] && [ ! -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ]; then
-  [ -d "$PX4_DIR/.git" ] || git clone -q --recursive --depth 1 https://github.com/PX4/PX4-Autopilot.git "$PX4_DIR"
-  "${UVPIP[@]}" -r "$PX4_DIR/Tools/setup/requirements.txt"
-  ( cd "$PX4_DIR" && PATH="$VENV/bin:$PATH" make px4_sitl_default >/dev/null )
+# ---------- 5. Gazebo Harmonic + PX4 SITL ----------
+if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
+  if [ ! -x "$MAMBA" ]; then
+    log "tải micromamba"
+    mkdir -p "$(dirname "$MAMBA")"
+    curl -fsSL -o "$MAMBA" https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
+    chmod +x "$MAMBA"
+  fi
+  if [ ! -x "$GZ_ENV/bin/gz" ]; then
+    log "cài Gazebo Harmonic (gz-sim8) + OpenCV 4 vào $GZ_ENV"
+    "$MAMBA" create -y -q -p "$GZ_ENV" -c conda-forge gz-sim8 gz-tools2 "libopencv=4.*" >/dev/null
+  elif [ $UPGRADE -eq 1 ]; then
+    "$MAMBA" update -y -q -p "$GZ_ENV" -c conda-forge --all >/dev/null
+  fi
+  # Lệnh gz chạy trong môi trường conda, không làm bẩn PATH hệ thống
+  printf '#!/bin/bash\nexec %s run -p %s gz "$@"\n' "$MAMBA" "$GZ_ENV" > /usr/local/bin/gz
+  chmod +x /usr/local/bin/gz
+
+  if [ ! -d "$PX4_DIR/.git" ]; then
+    log "clone PX4 $PX4_TAG"
+    git clone -q --recursive --depth 1 --shallow-submodules -b "$PX4_TAG" \
+      https://github.com/PX4/PX4-Autopilot.git "$PX4_DIR"
+  elif [ "$(git -C "$PX4_DIR" describe --tags 2>/dev/null || true)" != "$PX4_TAG" ]; then
+    log "đổi PX4 sang $PX4_TAG"
+    git -C "$PX4_DIR" fetch -q --depth 1 origin tag "$PX4_TAG"
+    git -C "$PX4_DIR" checkout -q "$PX4_TAG"
+    git -C "$PX4_DIR" submodule update -q --init --recursive --depth 1
+    rm -rf "${PX4_DIR:?}/build"
+  fi
+  if [ ! -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ]; then
+    "${UVPIP[@]}" -r "$PX4_DIR/Tools/setup/requirements.txt"
+    # Clone nông thiếu tag NuttX -> script sinh header phiên bản lỗi; chỉ tải tag (depth 1)
+    nuttx="$PX4_DIR/platforms/nuttx/NuttX/nuttx"
+    if [ -z "$(git -C "$nuttx" tag -l 'nuttx-*' | head -1)" ]; then
+      git -C "$nuttx" fetch -q --depth 1 origin 'refs/tags/nuttx-*:refs/tags/nuttx-*'
+    fi
+    # protobuf/abseil của conda-forge yêu cầu C++17; PX4 v1.16 đặt C++14 cứng trong CMakeLists
+    sed -i 's/^set(CMAKE_CXX_STANDARD 14)/set(CMAKE_CXX_STANDARD 17)/' "$PX4_DIR/CMakeLists.txt"
+    log "build PX4 SITL (kèm cầu nối Gazebo) — lần đầu ~15–20 phút"
+    # CMAKE_PREFIX_PATH để tìm gz-transport/OpenCV; ép Python của venv (không lấy Python của conda)
+    ( cd "$PX4_DIR" && PATH="$VENV/bin:$PATH" CMAKE_PREFIX_PATH="$GZ_ENV" make px4_sitl_default \
+        CMAKE_ARGS="-DPYTHON_EXECUTABLE=$VENV/bin/python -DPython3_EXECUTABLE=$VENV/bin/python \
+-DCMAKE_SHARED_LINKER_FLAGS=-L$GZ_ENV/lib -DCMAKE_EXE_LINKER_FLAGS=-L$GZ_ENV/lib \
+-DCMAKE_CXX_FLAGS=-Wno-error=deprecated-declarations" >/dev/null )
+    # (-Wno-error=deprecated-declarations: protobuf mới đánh dấu RepeatedField::Resize là deprecated)
+  fi
 fi
 
 # ---------- 6. Biến môi trường ----------
@@ -129,6 +175,9 @@ cat > "$ENV_SH" <<EOF
 export UAV_VENV=$VENV
 export PATH="$VENV/bin:$SU2_DIR/bin:$ARDUPILOT_DIR/Tools/autotest:\$PATH"
 export SU2_RUN="$SU2_DIR/bin"
+export PX4_DIR=$PX4_DIR
+export GZ_ENV=$GZ_ENV
+export MAMBA_ROOT_PREFIX=/opt/micromamba
 export PYTHONPATH="$SU2_DIR/bin\${PYTHONPATH:+:\$PYTHONPATH}"
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
