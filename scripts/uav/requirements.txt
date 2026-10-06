@@ -50,3 +50,6 @@ PyNiteFEA             # khung/dầm 3D
 sectionproperties     # đặc trưng mặt cắt (I, J, tâm cắt...)
 pyvista
 vtk
+
+# --- Mô phỏng vật lý thay Isaac Sim (chạy CPU) ---
+genesis-world         # Genesis: vật lý đa vật, song song hóa, RL; gs.init(backend=gs.cpu)
