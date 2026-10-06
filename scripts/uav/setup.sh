@@ -163,7 +163,9 @@ if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
     # CMAKE_PREFIX_PATH để tìm gz-transport/OpenCV; ép Python của venv (không lấy Python của conda)
     ( cd "$PX4_DIR" && PATH="$VENV/bin:$PATH" CMAKE_PREFIX_PATH="$GZ_ENV" make px4_sitl_default \
         CMAKE_ARGS="-DPYTHON_EXECUTABLE=$VENV/bin/python -DPython3_EXECUTABLE=$VENV/bin/python \
--DCMAKE_SHARED_LINKER_FLAGS=-L$GZ_ENV/lib -DCMAKE_EXE_LINKER_FLAGS=-L$GZ_ENV/lib" >/dev/null )
+-DCMAKE_SHARED_LINKER_FLAGS=-L$GZ_ENV/lib -DCMAKE_EXE_LINKER_FLAGS=-L$GZ_ENV/lib \
+-DCMAKE_CXX_FLAGS=-Wno-error=deprecated-declarations" >/dev/null )
+    # (-Wno-error=deprecated-declarations: protobuf mới đánh dấu RepeatedField::Resize là deprecated)
   fi
 fi
 
