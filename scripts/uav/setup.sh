@@ -53,8 +53,11 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 UVPIP=(uv pip install -q --python "$VENV/bin/python")
 [ $UPGRADE -eq 1 ] && UVPIP+=(--upgrade)
-log "cài torch (CPU)"
-"${UVPIP[@]}" torch --index-url https://download.pytorch.org/whl/cpu
+if ! "$VENV/bin/python" -c "import torch" 2>/dev/null || [ $UPGRADE -eq 1 ]; then
+  log "cài torch (ưu tiên bản CPU; nếu mạng chặn download.pytorch.org thì lấy từ PyPI)"
+  "${UVPIP[@]}" torch --index-url https://download.pytorch.org/whl/cpu 2>/dev/null \
+    || "${UVPIP[@]}" torch
+fi
 log "cài gói Python từ requirements.txt"
 "${UVPIP[@]}" -r "$HERE/requirements.txt"
 if ! "$VENV/bin/python" -c "import gym_pybullet_drones" 2>/dev/null || [ $UPGRADE -eq 1 ]; then
@@ -64,13 +67,22 @@ fi
 
 # ---------- 3. SU2 (CFD nén được, adjoint) ----------
 if [ ! -x "$SU2_DIR/bin/SU2_CFD" ] || [ $UPGRADE -eq 1 ]; then
-  url=$(curl -fsSL https://api.github.com/repos/su2code/SU2/releases/latest \
-        | grep -o 'https://[^"]*linux64\.zip' | grep -v mpi | head -1 || true)
+  # api.github.com có thể bị chặn; lấy tag mới nhất bằng git
+  tag=$(git ls-remote --tags --refs https://github.com/su2code/SU2.git 'v*' \
+        | awk -F/ '{print $NF}' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+  url=""
+  [ -n "$tag" ] && url="https://github.com/su2code/SU2/releases/download/$tag/SU2-$tag-linux64.zip"
   if [ -n "$url" ]; then
     log "tải SU2: $url"
-    tmp=$(mktemp -d); curl -fsSL "$url" -o "$tmp/su2.zip"
-    rm -rf "$SU2_DIR"; mkdir -p "$SU2_DIR"; unzip -q "$tmp/su2.zip" -d "$tmp/x"
-    cp -r "$tmp"/x/*/* "$SU2_DIR"/ 2>/dev/null || cp -r "$tmp"/x/* "$SU2_DIR"/
+    tmp=$(mktemp -d)
+    if curl -fsSL "$url" -o "$tmp/su2.zip" && unzip -q "$tmp/su2.zip" -d "$tmp/x"; then
+      bin=$(find "$tmp/x" -name SU2_CFD -type f | head -1)
+      rm -rf "$SU2_DIR"; mkdir -p "$SU2_DIR"
+      cp -r "$(dirname "$(dirname "$bin")")"/. "$SU2_DIR"/
+      chmod +x "$SU2_DIR"/bin/* || true
+    else
+      log "CẢNH BÁO: tải SU2 thất bại, bỏ qua"
+    fi
     rm -rf "$tmp"
   else
     log "CẢNH BÁO: không tìm được bản SU2 linux64, bỏ qua"
