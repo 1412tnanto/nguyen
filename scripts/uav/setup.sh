@@ -33,7 +33,7 @@ APT_PKGS=(
   calculix-ccx        # FEM kết cấu (tương thích cú pháp Abaqus)
   gmsh                # chia lưới
   xfoil               # phân tích profil cánh
-  paraview            # hậu xử lý (pvpython chạy headless)
+  paraview python3-paraview   # hậu xử lý (pvbatch chạy headless)
   xvfb libosmesa6 libgl1 libglu1-mesa libegl1 ffmpeg   # render không màn hình
   libxml2-dev libxslt1-dev
 )
@@ -71,15 +71,25 @@ if [ ! -x "$SU2_DIR/bin/SU2_CFD" ] || [ $UPGRADE -eq 1 ]; then
   tag=$(git ls-remote --tags --refs https://github.com/su2code/SU2.git 'v*' \
         | awk -F/ '{print $NF}' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
   url=""
-  [ -n "$tag" ] && url="https://github.com/su2code/SU2/releases/download/$tag/SU2-$tag-linux64.zip"
+  # Tên file đổi theo phiên bản: ưu tiên bản OpenMP (song song, không cần MPI)
+  for suffix in linux64-omp linux64; do
+    u="https://github.com/su2code/SU2/releases/download/$tag/SU2-$tag-$suffix.zip"
+    if [ -n "$tag" ] && curl -fsL -r 0-10 -o /dev/null "$u"; then url=$u; break; fi
+  done
   if [ -n "$url" ]; then
     log "tải SU2: $url"
     tmp=$(mktemp -d)
     if curl -fsSL "$url" -o "$tmp/su2.zip" && unzip -q "$tmp/su2.zip" -d "$tmp/x"; then
+      # Một số bản đóng gói zip lồng trong zip
+      find "$tmp/x" -name '*.zip' -exec unzip -q -o {} -d "$tmp/x" \;
       bin=$(find "$tmp/x" -name SU2_CFD -type f | head -1)
-      rm -rf "$SU2_DIR"; mkdir -p "$SU2_DIR"
-      cp -r "$(dirname "$(dirname "$bin")")"/. "$SU2_DIR"/
-      chmod +x "$SU2_DIR"/bin/* || true
+      if [ -n "$bin" ]; then
+        rm -rf "$SU2_DIR"; mkdir -p "$SU2_DIR"
+        cp -r "$(dirname "$(dirname "$bin")")"/. "$SU2_DIR"/
+        chmod +x "$SU2_DIR"/bin/* || true
+      else
+        log "CẢNH BÁO: không thấy SU2_CFD trong gói tải về, bỏ qua"
+      fi
     else
       log "CẢNH BÁO: tải SU2 thất bại, bỏ qua"
     fi

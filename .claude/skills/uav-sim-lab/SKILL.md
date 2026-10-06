@@ -33,7 +33,17 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
 | Khung/dầm 3D | `Pynite` (FEModel3D) | |
 | Đặc trưng mặt cắt | `sectionproperties` | |
 | FEM khối/vỏ, dao động riêng, buckling | CalculiX `ccx` (input kiểu Abaqus), `scikit-fem` | lưới bằng `gmsh` → `meshio` |
-| Hậu xử lý | `pyvista` (off-screen), `pvpython`, `matplotlib` | |
+| Hậu xử lý | `pyvista` (off-screen), `pvbatch` (script ParaView headless), `matplotlib` | |
+
+## 1b. Bẫy đã gặp
+- `ambiance.Atmosphere(h)` dùng độ cao **hình học**; bảng ISA dùng độ cao **địa thế** H
+  (h = r0·H/(r0−H), r0 = 6 356 766 m). Ở 11 km sai khác 0.12 K.
+- Mạng máy ảo chặn `download.pytorch.org` và `api.github.com`: torch lấy từ PyPI (bản CUDA, vẫn chạy CPU),
+  phiên bản GitHub lấy bằng `git ls-remote --tags`.
+- MuJoCo dùng Euler bán ẩn: rơi tự do n bước cho z = −g·dt²·n(n+1)/2 (−4.910 m sau 1 s, dt = 1 ms),
+  không phải −4.905 m — đây là sai số tích phân, giảm dt để hội tụ.
+- OpenFOAM từ apt là ESI v1912 (cũ); cú pháp tutorial của bản mới có thể khác.
+- SITL: muốn nhận vị trí/attitude phải gửi `REQUEST_DATA_STREAM`/`SET_MESSAGE_INTERVAL` trước.
 
 ## 2. Quy trình bắt buộc khi mô phỏng
 1. Ghi dữ kiện, đơn vị (SI: mm-N-MPa cho kết cấu, m-kg-s cho khí động/bay), giả thiết.

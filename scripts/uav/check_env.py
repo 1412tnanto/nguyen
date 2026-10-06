@@ -41,11 +41,14 @@ for mod in ["numpy", "scipy", "sympy", "pandas", "matplotlib", "numba", "control
 
 # --- Phép thử có đáp án ---
 def t_isa():
-    # Khí quyển ISA ở 11 km: T = 216.65 K
+    # ISA: tầng đối lưu kết thúc ở độ cao ĐỊA THẾ 11 km, T = 216.65 K.
+    # ambiance nhận độ cao HÌNH HỌC h; đổi từ địa thế: h = r0*H/(r0 - H)
     from ambiance import Atmosphere
-    T = float(Atmosphere(11000).temperature[0])
+    r0, H = 6356766.0, 11000.0
+    h = r0 * H / (r0 - H)
+    T = float(Atmosphere(h).temperature[0])
     assert abs(T - 216.65) < 0.01, T
-    return f"T(11 km) = {T:.2f} K"
+    return f"T(H=11 km địa thế, h={h:.0f} m) = {T:.2f} K"
 
 
 def t_neuralfoil():
@@ -54,7 +57,7 @@ def t_neuralfoil():
     r = nf.get_aero_from_kulfan_parameters(
         __import__("aerosandbox").Airfoil("naca0012").to_kulfan_airfoil().kulfan_parameters,
         alpha=0, Re=1e6)
-    cl = float(r["CL"])
+    cl = float(__import__("numpy").ravel(r["CL"])[0])
     assert abs(cl) < 0.01, cl
     return f"NACA0012 α=0°: CL = {cl:.4f}"
 
@@ -232,9 +235,23 @@ def t_openfoam():
 
 
 def t_ardupilot():
+    # Khởi động SITL quad, chờ heartbeat MAVLink: type 2 = quadrotor, autopilot 3 = ArduPilot
+    import time
+    from pymavlink import mavutil
     exe = "/opt/ardupilot/build/sitl/bin/arducopter"
     assert os.path.exists(exe), "chưa build ArduPilot SITL"
-    return "arducopter, arduplane có sẵn"
+    with tempfile.TemporaryDirectory() as d:
+        p = subprocess.Popen([exe, "--model", "quad", "-I0", "--defaults",
+                              "/opt/ardupilot/Tools/autotest/default_params/copter.parm"],
+                             cwd=d, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(3)
+            hb = mavutil.mavlink_connection("tcp:127.0.0.1:5760").wait_heartbeat(timeout=60)
+            assert hb and hb.type == 2 and hb.autopilot == 3, hb
+        finally:
+            p.terminate()
+            p.wait(timeout=10)
+    return "arducopter SITL gửi heartbeat (quadrotor, ArduPilot)"
 
 
 check("ISA (ambiance)", t_isa)
@@ -250,7 +267,7 @@ check("CalculiX (ccx)", t_ccx)
 check("XFOIL", t_xfoil)
 check("OpenFOAM", t_openfoam)
 check("SU2", t_bin("SU2_CFD", ["--help"]))
-check("ParaView (pvpython)", t_bin("pvpython", ["--version"]))
+check("ParaView (pvbatch)", t_bin("pvbatch", ["--version"]))
 check("ArduPilot SITL", t_ardupilot)
 
 w = max(len(n) for n, _, _ in results)
