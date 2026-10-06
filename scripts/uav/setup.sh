@@ -162,7 +162,8 @@ if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
     log "build PX4 SITL (kèm cầu nối Gazebo) — lần đầu ~15–20 phút"
     # CMAKE_PREFIX_PATH để tìm gz-transport/OpenCV; ép Python của venv (không lấy Python của conda)
     ( cd "$PX4_DIR" && PATH="$VENV/bin:$PATH" CMAKE_PREFIX_PATH="$GZ_ENV" make px4_sitl_default \
-        CMAKE_ARGS="-DPYTHON_EXECUTABLE=$VENV/bin/python -DPython3_EXECUTABLE=$VENV/bin/python" >/dev/null )
+        CMAKE_ARGS="-DPYTHON_EXECUTABLE=$VENV/bin/python -DPython3_EXECUTABLE=$VENV/bin/python \
+-DCMAKE_SHARED_LINKER_FLAGS=-L$GZ_ENV/lib -DCMAKE_EXE_LINKER_FLAGS=-L$GZ_ENV/lib" >/dev/null )
   fi
 fi
 
