@@ -35,7 +35,7 @@ for mod in ["numpy", "scipy", "sympy", "pandas", "matplotlib", "numba", "control
             "cvxpy", "openmdao", "filterpy", "aerosandbox", "neuralfoil", "ambiance", "mujoco",
             "pybullet", "gymnasium", "stable_baselines3", "torch", "gym_pybullet_drones",
             "pymavlink", "mavsdk", "pyulog", "gmsh", "meshio", "skfem", "Pynite",
-            "sectionproperties", "pyvista", "genesis"]:
+            "sectionproperties", "pyvista", "genesis", "do_mpc", "acados_template"]:
     check(f"import {mod}", lambda mod=mod: ver(mod))
 
 
@@ -297,6 +297,166 @@ def t_px4():
     return out[-1] if out else "ok"
 
 
+def t_openfoam2412():
+    # Tutorial cavity (icoFoam) phải chạy tới t = 0.5 s
+    assert shutil.which("of2412"), "không có lệnh of2412"
+    src = "/opt/openfoam2412/tutorials/incompressible/icoFoam/cavity/cavity"
+    with tempfile.TemporaryDirectory() as d:
+        case = shutil.copytree(src, os.path.join(d, "cavity"))
+        for app in ("blockMesh", "icoFoam"):
+            r = run(["of2412", app], cwd=case)
+            assert r.returncode == 0, f"{app}: {(r.stdout + r.stderr)[-300:]}"
+        assert os.path.isdir(os.path.join(case, "0.5")), "không có kết quả t = 0.5"
+    return "icoFoam cavity chạy tới t = 0.5 s"
+
+
+def t_aster():
+    # Dầm công-xôn POU_D_E, cùng số liệu với PyNite: δ = P L³ / (3 E I) = 47.619 mm
+    assert shutil.which("run_aster"), "không có lệnh run_aster"
+    mail = """COOR_3D
+N1 0. 0. 0.
+N2 250. 0. 0.
+N3 500. 0. 0.
+N4 750. 0. 0.
+N5 1000. 0. 0.
+FINSF
+SEG2
+E1 N1 N2
+E2 N2 N3
+E3 N3 N4
+E4 N4 N5
+FINSF
+GROUP_NO
+FIX N1
+FINSF
+GROUP_NO
+TIP N5
+FINSF
+GROUP_MA
+BEAM E1 E2 E3 E4
+FINSF
+FIN
+"""
+    comm = """from code_aster import CA
+from code_aster.Commands import *
+CA.init()
+DEFI_FICHIER(ACTION="ASSOCIER", FICHIER="{mail}", UNITE=20, ACCES="OLD")
+mesh = LIRE_MAILLAGE(FORMAT="ASTER", UNITE=20)
+model = AFFE_MODELE(MAILLAGE=mesh, AFFE=_F(GROUP_MA="BEAM", PHENOMENE="MECANIQUE", MODELISATION="POU_D_E"))
+mat = DEFI_MATERIAU(ELAS=_F(E=70000.0, NU=0.33))
+cm = AFFE_MATERIAU(MAILLAGE=mesh, AFFE=_F(TOUT="OUI", MATER=mat))
+cara = AFFE_CARA_ELEM(MODELE=model, POUTRE=_F(GROUP_MA="BEAM", SECTION="GENERALE",
+    CARA=("A", "IY", "IZ", "JX"), VALE=(100.0, 1.0e4, 1.0e4, 2.0e4)))
+bc = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=_F(GROUP_NO="FIX", DX=0, DY=0, DZ=0, DRX=0, DRY=0, DRZ=0),
+    FORCE_NODALE=_F(GROUP_NO="TIP", FY=-100.0))
+res = MECA_STATIQUE(MODELE=model, CHAM_MATER=cm, CARA_ELEM=cara, EXCIT=_F(CHARGE=bc))
+tab = POST_RELEVE_T(ACTION=_F(INTITULE="tip", GROUP_NO="TIP", RESULTAT=res, NOM_CHAM="DEPL",
+    NOM_CMP="DY", OPERATION="EXTRACTION"))
+print("DY_TIP=%.6f" % tab.EXTR_TABLE().values()["DY"][0])
+FIN()
+"""
+    with tempfile.TemporaryDirectory() as d:
+        mail_path = os.path.join(d, "beam.mail")
+        open(mail_path, "w").write(mail)
+        open(os.path.join(d, "beam.py"), "w").write(comm.format(mail=mail_path))
+        r = run(["run_aster", "beam.py"], cwd=d)
+    lines = [ln for ln in r.stdout.splitlines() if ln.startswith("DY_TIP=")]
+    assert r.returncode == 0 and lines, (r.stdout + r.stderr)[-300:]
+    d_tip = abs(float(lines[0].split("=")[1]))
+    exact = 100 * 1000**3 / (3 * 70e3 * 1e4)
+    assert abs(d_tip - exact) / exact < 1e-3, (d_tip, exact)
+    return f"δ = {d_tip:.4f} mm (giải tích {exact:.4f} mm)"
+
+
+def t_fenicsx():
+    # Kéo đơn trục khối lập phương cạnh 1 mm, σ = 100 MPa, E = 70 GPa: u_x(x=1) = σL/E
+    assert shutil.which("fenicsx-python"), "không có lệnh fenicsx-python"
+    code = """
+from mpi4py import MPI
+import numpy as np, ufl
+from dolfinx import mesh, fem
+from dolfinx.fem.petsc import LinearProblem
+dom = mesh.create_unit_cube(MPI.COMM_WORLD, 4, 4, 4)
+V = fem.functionspace(dom, ("Lagrange", 1, (3,)))
+E, nu = 70e3, 0.33
+mu, lam = E / (2 * (1 + nu)), E * nu / ((1 + nu) * (1 - 2 * nu))
+fdim = dom.topology.dim - 1
+bcs = []
+for i in range(3):  # đối xứng: mặt x_i = 0 khoá chuyển vị theo phương i -> kéo đơn trục thuần
+    facets = mesh.locate_entities_boundary(dom, fdim, lambda x, i=i: np.isclose(x[i], 0))
+    dofs = fem.locate_dofs_topological(V.sub(i), fdim, facets)
+    bcs.append(fem.dirichletbc(0.0, dofs, V.sub(i)))
+right = mesh.locate_entities_boundary(dom, fdim, lambda x: np.isclose(x[0], 1))
+tags = mesh.meshtags(dom, fdim, right, np.full(len(right), 1, dtype=np.int32))
+ds = ufl.Measure("ds", domain=dom, subdomain_data=tags)
+u, v = ufl.TrialFunction(V), ufl.TestFunction(V)
+eps = lambda w: ufl.sym(ufl.grad(w))
+sig = lambda w: 2 * mu * eps(w) + lam * ufl.tr(eps(w)) * ufl.Identity(3)
+a = ufl.inner(sig(u), eps(v)) * ufl.dx
+L = ufl.dot(fem.Constant(dom, (100.0, 0.0, 0.0)), v) * ds(1)
+uh = LinearProblem(a, L, bcs=bcs, petsc_options_prefix="t_",
+                   petsc_options={"ksp_type": "preonly", "pc_type": "lu"}).solve()
+print("UX_MAX=%.8f" % uh.x.array.reshape(-1, 3)[:, 0].max())
+"""
+    r = run(["fenicsx-python", "-c", code])
+    lines = [ln for ln in r.stdout.splitlines() if ln.startswith("UX_MAX=")]
+    assert r.returncode == 0 and lines, (r.stdout + r.stderr)[-300:]
+    ux = float(lines[0].split("=")[1])
+    exact = 100.0 / 70e3
+    # Phần tử P1 cho nghiệm chính xác khi ứng suất đều; sai số chỉ do làm tròn
+    assert abs(ux - exact) / exact < 1e-5, (ux, exact)
+    return f"u_x = {ux:.6e} mm (giải tích {exact:.6e} mm)"
+
+
+def t_ccx_version():
+    r = run([shutil.which("ccx") or "ccx", "-v"])
+    out = (r.stdout + r.stderr).strip()
+    assert "2.23" in out, out[-200:]
+    return out.splitlines()[-1][:60]
+
+
+def t_acados():
+    # OCP tích phân kép: đưa x0 = (1, 0) về 0; acados phải giải được (status 0)
+    import casadi as ca
+    import numpy as np
+    from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
+    m = AcadosModel()
+    m.name = "dint"
+    m.x, m.u = ca.SX.sym("x", 2), ca.SX.sym("u")
+    m.f_expl_expr = ca.vertcat(m.x[1], m.u)
+    ocp = AcadosOcp()
+    ocp.model = m
+    ocp.solver_options.N_horizon, ocp.solver_options.tf = 20, 2.0
+    ocp.cost.cost_type = ocp.cost.cost_type_e = "LINEAR_LS"
+    ocp.cost.Vx, ocp.cost.Vu = np.vstack([np.eye(2), [[0, 0]]]), np.array([[0], [0], [1.0]])
+    ocp.cost.Vx_e, ocp.cost.W, ocp.cost.W_e = np.eye(2), np.eye(3), 10 * np.eye(2)
+    ocp.cost.yref, ocp.cost.yref_e = np.zeros(3), np.zeros(2)
+    ocp.constraints.idxbu, ocp.constraints.lbu, ocp.constraints.ubu = [0], [-1.0], [1.0]
+    ocp.constraints.x0 = np.array([1.0, 0.0])
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd()
+        os.chdir(d)
+        try:
+            ocp.code_export_directory = os.path.join(d, "c_generated_code")
+            solver = AcadosOcpSolver(ocp, json_file=os.path.join(d, "ocp.json"), verbose=False)
+            status = solver.solve()
+            u0 = float(solver.get(0, "u")[0])
+        finally:
+            os.chdir(cwd)
+    assert status == 0, status
+    assert -1.0 - 1e-6 <= u0 < 0, u0   # phải đẩy ngược chiều x0, trong giới hạn |u| ≤ 1
+    return f"status 0, u0 = {u0:.3f}"
+
+
+def t_quad_mpc():
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "examples", "quad_mpc.py")],
+                       capture_output=True, text=True, timeout=600)
+    out = r.stdout.strip().splitlines()
+    assert r.returncode == 0, (r.stdout + r.stderr)[-400:]
+    return out[0] if out else "ok"
+
+
 check("ISA (ambiance)", t_isa)
 check("NeuralFoil", t_neuralfoil)
 check("AeroSandbox VLM", t_vlm)
@@ -315,6 +475,12 @@ check("ArduPilot SITL", t_ardupilot)
 check("Genesis rơi tự do", t_genesis)
 check("Gazebo Harmonic", t_gazebo)
 check("PX4 SITL cất cánh (SIH)", t_px4)
+check("OpenFOAM v2412", t_openfoam2412)
+check("Code_Aster dầm công-xôn", t_aster)
+check("FEniCSx kéo đơn trục", t_fenicsx)
+check("CalculiX 2.23", t_ccx_version)
+check("acados OCP", t_acados)
+check("NMPC quadrotor (acados)", t_quad_mpc)
 
 w = max(len(n) for n, _, _ in results)
 for name, ok, info in results:

@@ -1,6 +1,6 @@
 ---
 name: uav-sim-lab
-description: Bộ công cụ mô phỏng UAV cài sẵn trên máy ảo cloud (venv /opt/uav-venv) — khí động học (AeroSandbox, NeuralFoil, XFOIL, OpenFOAM, SU2), động lực học bay và điều khiển (python-control, CasADi, MuJoCo, Genesis, PyBullet/gym-pybullet-drones, Gazebo Harmonic, PX4 và ArduPilot SITL, MAVLink), kiểm bền kết cấu (CalculiX, PyNite, scikit-fem, sectionproperties, gmsh), hậu xử lý (ParaView, PyVista). Dùng skill này BẤT CỨ KHI NÀO cần tính/mô phỏng UAV, cánh, profil, lực nâng/cản, ổn định, PID/LQR/MPC, quỹ đạo, SITL/PX4/Gazebo, thay thế Isaac Sim, ứng suất/chuyển vị/dao động khung, chia lưới, hoặc khi cần cài thêm, kiểm tra, nâng cấp công cụ mô phỏng.
+description: Bộ công cụ mô phỏng UAV cài sẵn trên máy ảo cloud (venv /opt/uav-venv) — khí động học (AeroSandbox, NeuralFoil, XFOIL, OpenFOAM v2412, SU2), động lực học bay và điều khiển (python-control, CasADi, MuJoCo, Genesis, PyBullet/gym-pybullet-drones, Gazebo Harmonic, PX4 và ArduPilot SITL, MAVLink), kiểm bền kết cấu (Code_Aster, FEniCSx, CalculiX, PyNite, scikit-fem, sectionproperties, gmsh), MPC (acados, do-mpc), hậu xử lý (ParaView, PyVista). Dùng skill này BẤT CỨ KHI NÀO cần tính/mô phỏng UAV, cánh, profil, lực nâng/cản, ổn định, PID/LQR/MPC, quỹ đạo, SITL/PX4/Gazebo, thay thế Isaac Sim, ứng suất/chuyển vị/dao động khung, chia lưới, hoặc khi cần cài thêm, kiểm tra, nâng cấp công cụ mô phỏng.
 ---
 
 # UAV Sim Lab
@@ -25,9 +25,10 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
 | Profil cánh 2D | `neuralfoil` → `xfoil` | NeuralFoil nhanh, ổn định; XFOIL để đối chiếu, chạy qua stdin |
 | Cánh/máy bay 3D thế (inviscid) | `aerosandbox`: AeroBuildup, LiftingLine, VortexLatticeMethod | Đối chiếu Helmbold/Prandtl |
 | Tối ưu thiết kế (sizing, MDO) | `aerosandbox.Opti` (CasADi), `openmdao` | |
-| CFD nhớt, không nén | OpenFOAM (`simpleFoam`, `pimpleFoam`) | gõ `of` để nạp môi trường; lưới `blockMesh`/`snappyHexMesh`/gmsh |
+| CFD nhớt, không nén | **OpenFOAM v2412** (`of2412 simpleFoam`, `of2412` không tham số = bash đã nạp sẵn; tutorial ở `$WM_PROJECT_DIR/tutorials`) — ưu tiên; v1912 (apt, gõ `of`) chỉ để chạy case cũ | lưới `blockMesh`/`snappyHexMesh`/gmsh |
 | CFD nén được, adjoint | SU2 (`SU2_CFD`, `SU2_CFD_AD`) | |
-| Động lực học bay 6DOF, điều khiển | `numpy`/`scipy.integrate`, `control`, `casadi` (MPC), `filterpy` (EKF) | |
+| Động lực học bay 6DOF, điều khiển | `numpy`/`scipy.integrate`, `control` (PID/LQR), `filterpy` (EKF) | |
+| MPC | **acados** (NMPC thời gian thực, SQP-RTI + HPIPM; mẫu `scripts/uav/examples/quad_mpc.py`), `do_mpc` (MPC trên CasADi, dựng mô hình nhanh), `casadi` (tự viết OCP) | acados sinh code C vào thư mục hiện tại → `chdir` vào thư mục tạm; tạo sim bằng `AcadosSim.from_ocp(ocp)` |
 | Mô phỏng vật lý đa vật | `mujoco` (chính xác, nhanh), `genesis` (`gs.init(backend=gs.cpu)`, thay Isaac), `pybullet` | |
 | Thế giới 3D + cảm biến (IMU, GPS, baro, camera, lidar) | Gazebo Harmonic 8 (`gz sim -s -r world.sdf`, headless) | lệnh `gz` là wrapper chạy trong conda `/opt/gz` |
 | Quadrotor + RL | `gym_pybullet_drones` + `stable_baselines3` (torch CPU) | |
@@ -36,7 +37,9 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
 | Log bay | `pyulog` (PX4 .ulg), `pymavlink.mavutil` (ArduPilot .bin/.tlog) | |
 | Khung/dầm 3D | `Pynite` (FEModel3D) | |
 | Đặc trưng mặt cắt | `sectionproperties` | |
-| FEM khối/vỏ, dao động riêng, buckling | CalculiX `ccx` (input kiểu Abaqus), `scikit-fem` | lưới bằng `gmsh` → `meshio` |
+| FEM khối/vỏ, dao động riêng, buckling | CalculiX 2.23 `ccx` (input kiểu Abaqus), `scikit-fem` | lưới bằng `gmsh` → `meshio` |
+| FEM công nghiệp: phi tuyến, tiếp xúc, mỏi, composite, động lực học | **Code_Aster 18** (`run_aster case.py`, script Python `from code_aster import CA; CA.init()`) — gần ANSYS Mechanical nhất | lưới MED (gmsh xuất được) hoặc `.mail`; mẫu dầm trong `check_env.py::t_aster` |
+| FEM tự viết phương trình (đàn hồi, nhiệt, aeroelastic, tối ưu topology) | **FEniCSx 0.11** (`fenicsx-python script.py`, UFL) | dùng Python của env riêng, không import được từ `/opt/uav-venv` |
 | Hậu xử lý | `pyvista` (off-screen), `pvbatch` (script ParaView headless), `matplotlib` | |
 
 ## 1b. Bẫy đã gặp
@@ -53,6 +56,10 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
   Dừng mô phỏng bằng `pkill -x px4; pkill -x ruby` (server gz là tiến trình ruby); **đừng** dùng
   `pkill -f px4` trong cùng lệnh shell (khớp luôn shell của chính mình).
 - PX4 SIH/Gazebo đều cần thư mục làm việc có `gz_env.sh` — đã xử lý trong `px4_sitl.sh`.
+- Mỗi solver conda là một env riêng (`/opt/openfoam2412`, `/opt/aster`, `/opt/fenicsx`, `/opt/calculix`, `/opt/gz`)
+  để tránh xung đột MPI/PETSc/Python; luôn gọi qua wrapper trong `/usr/local/bin`, đừng trộn Python giữa các env
+  (truyền dữ liệu bằng file: MED/VTU/CSV).
+- Đĩa máy ảo có hạn (~5 GB trống sau cài): cache uv và micromamba được tự dọn cuối `setup.sh`.
 
 ## 2. Quy trình bắt buộc khi mô phỏng
 1. Ghi dữ kiện, đơn vị (SI: mm-N-MPa cho kết cấu, m-kg-s cho khí động/bay), giả thiết.
@@ -66,8 +73,10 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
 
 ## 3. Mẫu nhanh
 ```bash
-of                                   # nạp OpenFOAM
-cp -r $FOAM_TUTORIALS/incompressible/simpleFoam/airFoil2D /tmp/af && cd /tmp/af && ./Allrun
+cp -r /opt/openfoam2412/tutorials/incompressible/simpleFoam/airFoil2D /tmp/af && cd /tmp/af
+of2412 ./Allrun                      # OpenFOAM v2412
+run_aster beam.py                    # Code_Aster
+fenicsx-python elasticity.py         # FEniCSx
 ```
 ```python
 # SITL + pymavlink: khởi động arducopter rồi kết nối tcp:127.0.0.1:5760
@@ -90,3 +99,5 @@ m = mavutil.mavlink_connection("tcp:127.0.0.1:5760"); m.wait_heartbeat(timeout=6
 - PX4: đổi `PX4_TAG` trong `setup.sh` để nâng cấp (script tự checkout + build lại). Bản vá cục bộ khi build
   với Gazebo conda: C++17, `-L/opt/gz/lib`, `-Wno-error=deprecated-declarations`, tải tag NuttX.
   Bỏ qua PX4 + Gazebo: `setup.sh --skip-px4`.
+- Solver conda: thêm/sửa dòng `mamba_env <prefix> <gói>` + `wrap <lệnh> <prefix>` trong `setup.sh`;
+  `--upgrade` cập nhật toàn bộ env. acados: đổi `ACADOS_TAG` (và bản `t_renderer` tương ứng).
