@@ -14,6 +14,12 @@ ARDUPILOT_DIR=/opt/ardupilot
 PX4_DIR=/opt/PX4-Autopilot
 PX4_TAG=v1.16.2                 # bản ổn định; đổi tag ở đây để nâng cấp PX4
 GZ_ENV=/opt/gz                  # Gazebo Harmonic từ conda-forge (repo OSRF bị chặn)
+OF_ENV=/opt/openfoam2412        # OpenFOAM v2412 (ESI); bản apt v1912 vẫn giữ, gọi bằng alias 'of'
+ASTER_ENV=/opt/aster            # Code_Aster (nompi)
+FENICSX_ENV=/opt/fenicsx        # FEniCSx (dolfinx + MPI)
+CCX_ENV=/opt/calculix           # CalculiX 2.23, thay bản apt 2.21 qua /usr/local/bin/ccx
+ACADOS_DIR=/opt/acados
+ACADOS_TAG=v0.6.0
 MAMBA=/opt/micromamba/bin/micromamba
 export MAMBA_ROOT_PREFIX=/opt/micromamba
 UPGRADE=0; SKIP_PX4=0; SKIP_SITL=0
@@ -121,23 +127,44 @@ if [ $SKIP_SITL -eq 0 ]; then
   fi
 fi
 
-# ---------- 5. Gazebo Harmonic + PX4 SITL ----------
-if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
-  if [ ! -x "$MAMBA" ]; then
-    log "tải micromamba"
-    mkdir -p "$(dirname "$MAMBA")"
-    curl -fsSL -o "$MAMBA" https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-    chmod +x "$MAMBA"
-  fi
-  if [ ! -x "$GZ_ENV/bin/gz" ]; then
-    log "cài Gazebo Harmonic (gz-sim8) + OpenCV 4 vào $GZ_ENV"
-    "$MAMBA" create -y -q -p "$GZ_ENV" -c conda-forge gz-sim8 gz-tools2 "libopencv=4.*" >/dev/null
+# ---------- 5. Gói conda-forge (mỗi solver một env, tránh xung đột MPI/PETSc/Python) ----------
+if [ ! -x "$MAMBA" ]; then
+  log "tải micromamba"
+  mkdir -p "$(dirname "$MAMBA")"
+  curl -fsSL -o "$MAMBA" https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
+  chmod +x "$MAMBA"
+fi
+mamba_env() {  # mamba_env <prefix> <gói...>: tạo env nếu chưa có, nâng cấp khi --upgrade
+  local prefix=$1; shift
+  if [ ! -d "$prefix/conda-meta" ]; then
+    log "conda: tạo $prefix ($*)"
+    "$MAMBA" create -y -q -p "$prefix" -c conda-forge "$@" >/dev/null
   elif [ $UPGRADE -eq 1 ]; then
-    "$MAMBA" update -y -q -p "$GZ_ENV" -c conda-forge --all >/dev/null
+    "$MAMBA" update -y -q -p "$prefix" -c conda-forge --all >/dev/null
   fi
-  # Lệnh gz chạy trong môi trường conda, không làm bẩn PATH hệ thống
-  printf '#!/bin/bash\nexec %s run -p %s gz "$@"\n' "$MAMBA" "$GZ_ENV" > /usr/local/bin/gz
-  chmod +x /usr/local/bin/gz
+  "$MAMBA" clean -a -y -q >/dev/null   # ổ đĩa máy ảo có hạn
+}
+wrap() {  # wrap <lệnh> <prefix> [lệnh trong env]: /usr/local/bin/<lệnh> chạy trong env, không làm bẩn PATH
+  printf '#!/bin/bash\nexec %s run -p %s %s "$@"\n' "$MAMBA" "$2" "${3:-$1}" > "/usr/local/bin/$1"
+  chmod +x "/usr/local/bin/$1"
+}
+
+mamba_env "$OF_ENV" "openfoam=2412"
+# of2412: không tham số -> mở bash đã nạp OpenFOAM v2412 (script activate của conda đặt WM_*/FOAM_*);
+# có tham số -> chạy lệnh đó. Tutorial: $WM_PROJECT_DIR/tutorials
+printf '#!/bin/bash\n[ $# -eq 0 ] && set -- bash -i\nexec %s run -p %s "$@"\n' "$MAMBA" "$OF_ENV" > /usr/local/bin/of2412
+chmod +x /usr/local/bin/of2412
+mamba_env "$ASTER_ENV" "code-aster=*=*nompi*"
+wrap run_aster "$ASTER_ENV"
+mamba_env "$FENICSX_ENV" "fenics-dolfinx=0.11" mpich pyvista
+wrap fenicsx-python "$FENICSX_ENV" python
+mamba_env "$CCX_ENV" "calculix=2.23"
+wrap ccx "$CCX_ENV"
+
+# ---------- 6. Gazebo Harmonic + PX4 SITL ----------
+if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
+  mamba_env "$GZ_ENV" gz-sim8 gz-tools2 "libopencv=4.*"
+  wrap gz "$GZ_ENV"
 
   if [ ! -d "$PX4_DIR/.git" ]; then
     log "clone PX4 $PX4_TAG"
@@ -169,10 +196,32 @@ if [ $SKIP_SITL -eq 0 ] && [ $SKIP_PX4 -eq 0 ]; then
   fi
 fi
 
-# ---------- 6. Biến môi trường ----------
+# ---------- 7. acados (NMPC thời gian thực) ----------
+if [ ! -f "$ACADOS_DIR/lib/libacados.so" ] || [ $UPGRADE -eq 1 ]; then
+  if [ ! -d "$ACADOS_DIR/.git" ]; then
+    log "clone acados $ACADOS_TAG"
+    git -c advice.detachedHead=false clone -q --recursive --depth 1 --shallow-submodules -b "$ACADOS_TAG" \
+      https://github.com/acados/acados.git "$ACADOS_DIR"
+  fi
+  log "build acados (qpOASES + HPIPM)"
+  cmake -S "$ACADOS_DIR" -B "$ACADOS_DIR/build" -DACADOS_WITH_QPOASES=ON >/dev/null
+  cmake --build "$ACADOS_DIR/build" -j"$(nproc)" --target install >/dev/null
+fi
+# t_renderer: sinh code C cho solver; bản dựng sẵn trên GitHub release
+if [ ! -x "$ACADOS_DIR/bin/t_renderer" ]; then
+  mkdir -p "$ACADOS_DIR/bin"
+  curl -fsSL -o "$ACADOS_DIR/bin/t_renderer" \
+    https://github.com/acados/tera_renderer/releases/download/v0.2.1/t_renderer-v0.2.1-linux-amd64
+  chmod +x "$ACADOS_DIR/bin/t_renderer"
+fi
+"$VENV/bin/python" -c "import acados_template" 2>/dev/null || "${UVPIP[@]}" -e "$ACADOS_DIR/interfaces/acados_template"
+
+# ---------- 8. Biến môi trường ----------
 ENV_SH=/etc/profile.d/uav-env.sh
 cat > "$ENV_SH" <<EOF
 export UAV_VENV=$VENV
+export ACADOS_SOURCE_DIR=$ACADOS_DIR
+export LD_LIBRARY_PATH="$ACADOS_DIR/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 export PATH="$VENV/bin:$SU2_DIR/bin:$ARDUPILOT_DIR/Tools/autotest:\$PATH"
 export SU2_RUN="$SU2_DIR/bin"
 export PX4_DIR=$PX4_DIR
@@ -186,5 +235,6 @@ EOF
 of_rc=$(ls /usr/share/openfoam/etc/bashrc /usr/lib/openfoam/*/etc/bashrc 2>/dev/null | head -1 || true)
 [ -n "$of_rc" ] && echo "alias of='source $of_rc'   # gõ 'of' để nạp OpenFOAM" >> "$ENV_SH"
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then grep '^export' "$ENV_SH" >> "$CLAUDE_ENV_FILE"; fi
+uv cache clean >/dev/null 2>&1 || true   # cache uv có thể lên tới >10 GB
 
 log "xong. Kiểm tra: $VENV/bin/python $HERE/check_env.py"

@@ -23,6 +23,7 @@ ambiance              # khí quyển chuẩn ISA
 # --- Động lực học bay, điều khiển, tối ưu ---
 control               # python-control: PID, LQR, hàm truyền, Bode
 casadi                # tối ưu phi tuyến, MPC
+do-mpc                # MPC dựa trên CasADi (mô hình nhanh, dạy học); NMPC thời gian thực dùng acados
 cvxpy
 openmdao              # tối ưu đa ngành (MDO)
 filterpy              # bộ lọc Kalman / EKF
