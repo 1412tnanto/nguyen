@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "uav-sim": {
+      "command": "/opt/uav-venv/bin/python",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/scripts/uav/mcp_server.py"]
+    }
+  }
+}

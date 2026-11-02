@@ -31,6 +31,9 @@
       }
     }
   },
+  "enabledMcpjsonServers": [
+    "uav-sim"
+  ],
   "hooks": {
     "SessionStart": [
       {
@@ -42,5 +45,8 @@
         ]
       }
     ]
+  },
+  "env": {
+    "MCP_TIMEOUT": "120000"
   }
 }
