@@ -54,3 +54,4 @@ vtk
 
 # --- Mô phỏng vật lý thay Isaac Sim (chạy CPU) ---
 genesis-world         # Genesis: vật lý đa vật, song song hóa, RL; gs.init(backend=gs.cpu)
+mcp>=2                # MCP server uav-sim (scripts/uav/mcp_server.py)

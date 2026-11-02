@@ -61,6 +61,22 @@ Môi trường nằm ngoài repo (máy ảo bị xóa sau mỗi phiên) và đư
   (truyền dữ liệu bằng file: MED/VTU/CSV).
 - Đĩa máy ảo có hạn (~5 GB trống sau cài): cache uv và micromamba được tự dọn cuối `setup.sh`.
 
+## 1c. MCP `uav-sim` (tool `mcp__uav-sim__*`, khai báo ở `.mcp.json`, mã `scripts/uav/mcp_server.py`)
+| Tool | Việc |
+|---|---|
+| `check_env` | chạy `check_env.py` (~4 phút) |
+| `openfoam(case_dir, commands, version="2412")` | chạy lần lượt lệnh OpenFOAM trong case, ghi `log.<lệnh>` |
+| `code_aster(script)` | `run_aster`; trả dòng `TÊN=giá trị` + lỗi `<F>/<E>/<A>`, log đầy đủ ở `<script>.log` |
+| `fenicsx(script)` | chạy script dolfinx trong `/opt/fenicsx` |
+| `sitl_start(autopilot, model)` / `sitl_stop()` | bật/tắt PX4 (`sihsim_quadx`, `gz_x500`…, udp 14540) hoặc ArduPilot (`quad`, `plane`, tcp 5760) chạy nền |
+| `px4_takeoff()` | arm + cất cánh tới `MIS_TAKEOFF_ALT` |
+| `mavlink_status(autopilot)` | heartbeat, armed, lat/lon, độ cao, tư thế, pin |
+
+Trình tự PX4: `sitl_start("px4", "gz_x500")` → `px4_takeoff` → `mavlink_status` → `sitl_stop`.
+Nếu chưa thấy tool `mcp__uav-sim__*` (server khởi động cùng lúc với hook SessionStart có thể quá giờ): người dùng
+gõ `/mcp` để kết nối lại; trong lúc đó dùng Bash gọi thẳng lệnh tương ứng.
+Thêm tool mới: viết hàm `@app.tool()` trong `mcp_server.py`, gọi lại lệnh/wrapper sẵn có, thử bằng JSON-RPC stdio.
+
 ## 2. Quy trình bắt buộc khi mô phỏng
 1. Ghi dữ kiện, đơn vị (SI: mm-N-MPa cho kết cấu, m-kg-s cho khí động/bay), giả thiết.
 2. Chạy **case kiểm chứng** có lời giải giải tích trước (xem `check_env.py`: Helmbold, rơi tự do,
